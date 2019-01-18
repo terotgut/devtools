@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using Microsoft.Build.Construction;
 using Microsoft.Build.Definition;
@@ -69,17 +71,21 @@ public static class Program
         var version = project.GetPropertyValue("VersionPrefix");
 
         var changelog = File.ReadAllText("CHANGELOG.md");
-        
+
         if (!changelog.Contains($@"## {version} ("))
-            throw new Exception($"Describe changes for version {version} in CHANGELOG.md before release!");
+        {
+            Console.Out.WriteLine($"Describe changes for version {version} in CHANGELOG.md before release!");
+            LaunchTextEditor("CHANGELOG.md");
+            throw new Exception();
+        }
 
         var latestNugetVersion = GetLatestNugetVersion(solutionProject.ProjectName, false);
         if (latestNugetVersion != null && latestNugetVersion.Version >= Version.Parse(version))
             throw new Exception($"Bump version first. Version {latestNugetVersion.Version.ToShortString()} found on nuget.org");
 
         Console.Out.WriteLine($"Release version {version}.");
-        Exec("git tag release/" + version).exitCode.EnsureSuccess();
-        Exec("git push origin release/" + version).exitCode.EnsureSuccess();
+//        Exec("git tag release/" + version).exitCode.EnsureSuccess();
+//        Exec("git push origin release/" + version).exitCode.EnsureSuccess();
 
         var oldVersion = Version.Parse(version);
         var newVersion = new Version(oldVersion.Major, oldVersion.Minor, oldVersion.Build + 1, 0)
@@ -90,21 +96,28 @@ public static class Program
         project.SetProperty("VersionPrefix", newVersion);
         project.Save();
 
-        Exec($@"git add ""{solutionProject.ProjectName}""").exitCode.EnsureSuccess();
-        Exec($@"git commit -m ""Bumped version to {newVersion}"".").exitCode.EnsureSuccess();
-        Exec("git push").exitCode.EnsureSuccess();
+//        Exec($@"git add ""{solutionProject.ProjectName}""").exitCode.EnsureSuccess();
+//        Exec($@"git commit -m ""Bumped version to {newVersion}"".").exitCode.EnsureSuccess();
+//        Exec("git push").exitCode.EnsureSuccess();
         
         Console.Out.WriteLine();
     }
 
+    private static void ExecEditor(string command, string arg)
+    {
+        ExecEditor($@"""{command}"" {arg}");
+    }
+
     private static (int exitCode, string stdOut, string stdErr) Exec(string command)
     {
-        var parts = command.Split(' ', 2);
+        Console.WriteLine($"Running {command} ...");
         
+        var args = SplitArgs(command);
+
         var process = Process.Start(new ProcessStartInfo
         {
-            FileName = parts[0],
-            Arguments = parts.Length > 1 ? parts[1] : "",
+            FileName = args[0],
+            Arguments = string.Join(" ", args.Skip(1).Select(x => $"\"{x}\"")),
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
@@ -123,6 +136,58 @@ public static class Program
             Console.WriteLine(stdErr);
 
         return (exitCode, stdOut, stdErr);
+    }
+    
+    private static void ExecEditor(string command)
+    {
+        Console.WriteLine($"Running {command} ...");
+        
+        var args = SplitArgs(command);
+
+        var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = args[0],
+            Arguments = string.Join(" ", args.Skip(1).Select(x => $"\"{x}\""))
+        });
+
+        process.WaitForExit();
+    }
+
+    private static List<string> SplitArgs(string command)
+    {
+        var args = new List<string>();
+        var isQuoted = false;
+        var sb = new StringBuilder();
+
+        foreach (var c in command + " ")
+        {
+            if (c == '\"')
+            {
+                isQuoted = !isQuoted;
+                if (sb.Length > 0)
+                {
+                    args.Add(sb.ToString());
+                    sb.Clear();
+                }
+
+                continue;
+            }
+
+            if (c == ' ' && !isQuoted)
+            {
+                if (sb.Length > 0)
+                {
+                    args.Add(sb.ToString());
+                    sb.Clear();
+                }
+
+                continue;
+            }
+
+            sb.Append(c);
+        }
+
+        return args;
     }
 
     private static void EnsureSuccess(this int exitCode)
@@ -160,5 +225,37 @@ public static class Program
         return versions.Any()
             ? versions.Max()
             : null;
+    }
+
+    private static void LaunchTextEditor(string file)
+    {
+        var defaultEditor = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? "notepad.exe"
+            : "vi";
+        
+        var gitEditor = Exec("git config core.editor");
+        if (gitEditor.exitCode != 0)
+        {
+            ExecEditor(defaultEditor, file);
+            return;
+        }
+
+        try
+        {
+            ExecEditor(gitEditor.stdOut.Trim(), file);
+        }
+        catchgit 
+        {
+            try
+            {
+                var whereGit = Exec((RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "where" : "which") + " git");
+                whereGit.exitCode.EnsureSuccess();
+                ExecEditor(Path.Combine(Path.GetDirectoryName(whereGit.stdOut.Trim()), "..", "usr", "bin", gitEditor.stdOut.Trim()), file);
+            }
+            catch
+            {
+                ExecEditor(defaultEditor, file);
+            }
+        }
     }
 }
