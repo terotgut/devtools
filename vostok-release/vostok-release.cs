@@ -105,7 +105,7 @@ public static class Program
 
     private static void ExecEditor(string command, string arg)
     {
-        ExecEditor($@"""{command}"" {arg}");
+        ExecEditor($"{command} {arg}");
     }
 
     private static (int exitCode, string stdOut, string stdErr) Exec(string command)
@@ -244,7 +244,7 @@ public static class Program
         {
             ExecEditor(gitEditor.stdOut.Trim(), file);
         }
-        catchgit 
+        catch
         {
             try
             {
