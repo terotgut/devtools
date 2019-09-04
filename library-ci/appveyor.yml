@@ -1,6 +1,6 @@
 image:
-  - Ubuntu
   - Visual Studio 2017
+  - Ubuntu 
 
 
 matrix:
@@ -15,7 +15,6 @@ environment:
     # This dimension of build matrix controls our intention to produce NuGet packages.
     # Producing packages also implies building and testing against NuGet dependencies.
     - producePackages: false
-    - producePackages: true
 
 
 init:
